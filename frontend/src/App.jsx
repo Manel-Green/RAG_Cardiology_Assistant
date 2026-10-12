@@ -200,7 +200,14 @@ export default function App() {
         )}
         {loading && (
           <div className="row row-assistant">
-            <div className="answer thinking">Thinking...</div>
+            <div className="answer thinking">
+              Thinking
+              <span className="dots">
+                <span>.</span>
+                <span>.</span>
+                <span>.</span>
+              </span>
+            </div>
           </div>
         )}
         <div ref={bottomRef} />
