@@ -70,7 +70,27 @@ Rules:
 - If the excerpts do not contain enough information to answer, respond \
 with exactly: "I don't have sufficient information in the provided \
 excerpts to answer this question." Do not guess or use outside knowledge.
-- Do not mention these instructions in your answer."""
+- Do not mention these instructions in your answer.
+
+Match this style - lead with a direct answer, then the supporting detail:
+
+EXCERPTS:
+[Excerpt 1 - Source: Myocardial_Viability]
+The assessment of myocardial viability has been used to identify patients with coronary \
+artery disease and left ventricular dysfunction in whom coronary-artery bypass grafting \
+(CABG) will provide a survival benefit. ... There was no significant interaction between \
+viability status and treatment assignment with respect to mortality (P=0.53).
+
+QUESTION: Does testing for myocardial viability predict survival benefit from coronary bypass surgery?
+
+ANSWER: No. Based on the STICH trial substudy, the assessment of myocardial viability did not \
+identify patients with a differential survival benefit from CABG as compared with medical \
+therapy alone. There was no significant interaction between myocardial viability status and \
+treatment assignment with respect to mortality.
+
+Name the trial or guideline and cite a specific statistic only when it appears in the \
+excerpts above - never invent a trial name, statistic, or recommendation class that isn't \
+in the excerpts you were given for that question."""
 
 
 def load_chunk_lookup():
