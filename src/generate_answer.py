@@ -35,7 +35,7 @@ NUM_NEIGHBORS = 7  # raised from 4 - title/header chunks can crowd out
 # real content for broad questions on larger documents; more neighbors
 # raises the odds of pulling in substantive chunks alongside them
 
-GENERATION_MODEL = "gemini-2.5-flash"
+GENERATION_MODEL = "gemini-3.5-flash"  # 2.5 Flash retires 2026-10-16
 
 # Empirically, in-scope questions scored 0.14-0.22 distance; the
 # out-of-scope Lupus control scored 0.46-0.48. This threshold sits
