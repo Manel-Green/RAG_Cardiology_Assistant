@@ -15,6 +15,7 @@ Then: curl -X POST localhost:8080/ask -H "Content-Type: application/json" \
 
 import vertexai
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from google import genai
 from google.cloud import aiplatform
 from pydantic import BaseModel
@@ -31,6 +32,16 @@ from generate_answer import (
 )
 
 app = FastAPI(title="RAG Heart Studies API")
+
+# Allows the React frontend (running on localhost during dev) to call
+# this API - fine to leave open since this serves only public research
+# paper content, nothing sensitive.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 vertexai.init(project=PROJECT_ID, location=VERTEX_LOCATION)
 embedding_model = TextEmbeddingModel.from_pretrained("text-embedding-005")
