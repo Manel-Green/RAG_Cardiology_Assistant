@@ -88,6 +88,41 @@ body {
   max-width: 85%;
 }
 
+.answer p {
+  margin: 0 0 12px;
+}
+
+.answer p:last-child {
+  margin-bottom: 0;
+}
+
+.answer ul,
+.answer ol {
+  margin: 0 0 12px;
+  padding-left: 22px;
+}
+
+.answer li {
+  margin-bottom: 6px;
+}
+
+.answer li:last-child {
+  margin-bottom: 0;
+}
+
+.answer strong {
+  color: #ffffff;
+  font-weight: 700;
+}
+
+.answer code {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.9em;
+  background: rgba(255, 255, 255, 0.1);
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+
 .answer.thinking {
   color: #9aa7bd;
   font-style: italic;

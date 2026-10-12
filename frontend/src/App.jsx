@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import ReactMarkdown from "react-markdown";
 
 const BACKEND_URL = "https://rag-heart-studies-backend-90354696252.europe-west3.run.app/ask";
 const SOURCES_DELIMITER = "⁣⁣SOURCES⁣⁣"; // must match src/app.py exactly
@@ -165,7 +166,9 @@ export default function App() {
             </div>
           ) : (
             <div className="row row-assistant" key={i}>
-              <div className="answer">{m.text}</div>
+              <div className="answer">
+                <ReactMarkdown>{m.text}</ReactMarkdown>
+              </div>
               {m.sources && m.sources.length > 0 && (
                 <div className="sources">
                   {m.sources.map((s, j) => (
