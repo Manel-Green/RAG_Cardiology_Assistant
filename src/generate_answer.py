@@ -17,8 +17,9 @@ Run: python src/generate_answer.py
 import json
 
 import vertexai
+from google import genai
 from google.cloud import aiplatform, storage
-from vertexai.generative_models import GenerativeModel
+from google.genai import types
 from vertexai.language_models import TextEmbeddingModel
 
 PROJECT_ID = "manel-portfolio-demos"
@@ -35,9 +36,12 @@ NUM_NEIGHBORS = 7  # raised from 4 - title/header chunks can crowd out
 # real content for broad questions on larger documents; more neighbors
 # raises the odds of pulling in substantive chunks alongside them
 
-GENERATION_MODEL = "gemini-2.5-flash"  # reverted: "gemini-3.5-flash" 404'd -
-# exact model ID unverified, needs checking properly before retrying.
-# 2.5 Flash retires 2026-10-16, well after tomorrow's demo - safe for now.
+GENERATION_MODEL = "gemini-3.5-flash"  # verified real via Vertex AI Model
+# Garden docs directly: Resource ID "gemini-3.5-flash", GA 2026-05-19.
+# Uses the newer google-genai SDK (own client, own global state) rather
+# than the deprecated vertexai.generative_models SDK - that older SDK's
+# shared global location state was breaking Vector Search's
+# find_neighbors call when switched to location="global" for Gemini.
 
 # Empirically, in-scope questions scored 0.14-0.22 distance; the
 # out-of-scope Lupus control scored 0.46-0.48. This threshold sits
@@ -117,7 +121,7 @@ QUESTION: {question}
 ANSWER:"""
 
 
-def answer_question(question, embedding_model, index_endpoint, chunk_lookup, generation_model):
+def answer_question(question, embedding_model, index_endpoint, chunk_lookup, genai_client):
     retrieved_chunks = retrieve_chunks(embedding_model, index_endpoint, chunk_lookup, question)
 
     # Code-level gate: if even the closest match is too far, refuse
@@ -128,9 +132,13 @@ def answer_question(question, embedding_model, index_endpoint, chunk_lookup, gen
 
     prompt = build_prompt(question, retrieved_chunks)
 
-    response = generation_model.generate_content(
-        prompt,
-        generation_config={"temperature": 0},
+    response = genai_client.models.generate_content(
+        model=GENERATION_MODEL,
+        contents=prompt,
+        config=types.GenerateContentConfig(
+            system_instruction=SYSTEM_PROMPT,
+            temperature=0,
+        ),
     )
 
     return response.text, retrieved_chunks
@@ -139,10 +147,10 @@ def answer_question(question, embedding_model, index_endpoint, chunk_lookup, gen
 def main():
     vertexai.init(project=PROJECT_ID, location=VERTEX_LOCATION)
     embedding_model = TextEmbeddingModel.from_pretrained("text-embedding-005")
-    generation_model = GenerativeModel(
-        GENERATION_MODEL,
-        system_instruction=[SYSTEM_PROMPT],
-    )
+
+    # Separate client, separate SDK, from the vertexai one above - no
+    # shared global state with the embedding model or Vector Search.
+    genai_client = genai.Client(enterprise=True, project=PROJECT_ID, location="global")
 
     aiplatform.init(project=PROJECT_ID, location=INDEX_LOCATION)
     index_endpoint = aiplatform.MatchingEngineIndexEndpoint(INDEX_ENDPOINT_RESOURCE_NAME)
@@ -155,7 +163,7 @@ def main():
         print("-" * 90)
 
         answer_text, retrieved_chunks = answer_question(
-            question, embedding_model, index_endpoint, chunk_lookup, generation_model
+            question, embedding_model, index_endpoint, chunk_lookup, genai_client
         )
 
         print("\nANSWER:")

@@ -15,18 +15,16 @@ Then: curl -X POST localhost:8080/ask -H "Content-Type: application/json" \
 
 import vertexai
 from fastapi import FastAPI
+from google import genai
 from google.cloud import aiplatform
 from pydantic import BaseModel
-from vertexai.generative_models import GenerativeModel
 from vertexai.language_models import TextEmbeddingModel
 
 from generate_answer import (
-    GENERATION_MODEL,
     INDEX_ENDPOINT_RESOURCE_NAME,
     INDEX_LOCATION,
     NO_MATCH_MESSAGE,
     PROJECT_ID,
-    SYSTEM_PROMPT,
     VERTEX_LOCATION,
     answer_question,
     load_chunk_lookup,
@@ -36,7 +34,11 @@ app = FastAPI(title="RAG Heart Studies API")
 
 vertexai.init(project=PROJECT_ID, location=VERTEX_LOCATION)
 embedding_model = TextEmbeddingModel.from_pretrained("text-embedding-005")
-generation_model = GenerativeModel(GENERATION_MODEL, system_instruction=[SYSTEM_PROMPT])
+
+# Separate client/SDK from the vertexai one above - see generate_answer.py
+# for why (old SDK's shared global state broke Vector Search when
+# switched to location="global" for the newer Gemini model).
+genai_client = genai.Client(enterprise=True, project=PROJECT_ID, location="global")
 
 aiplatform.init(project=PROJECT_ID, location=INDEX_LOCATION)
 index_endpoint = aiplatform.MatchingEngineIndexEndpoint(INDEX_ENDPOINT_RESOURCE_NAME)
@@ -71,7 +73,7 @@ def ask(request: QuestionRequest):
         embedding_model,
         index_endpoint,
         chunk_lookup,
-        generation_model,
+        genai_client,
     )
 
     # If the refusal gate triggered, these chunks were retrieved but
