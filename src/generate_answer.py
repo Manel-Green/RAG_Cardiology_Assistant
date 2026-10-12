@@ -24,7 +24,9 @@ from vertexai.language_models import TextEmbeddingModel
 
 PROJECT_ID = "manel-portfolio-demos"
 INDEX_LOCATION = "europe-west3"
-VERTEX_LOCATION = "us-central1"
+VERTEX_LOCATION = "europe-west3"  # matches INDEX_LOCATION and Cloud Run's
+# region - was us-central1, adding a transatlantic round-trip to every
+# single embedding call. text-embedding-005 is available in europe-west3.
 BUCKET = "manel-portfolio-demos-rag-heart-studies"
 LOOKUP_BLOB_PATH = "processed/embeddings/chunk_lookup.json"
 
