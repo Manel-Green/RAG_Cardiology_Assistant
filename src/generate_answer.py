@@ -144,6 +144,39 @@ def answer_question(question, embedding_model, index_endpoint, chunk_lookup, gen
     return response.text, retrieved_chunks
 
 
+def stream_answer(question, embedding_model, index_endpoint, chunk_lookup, genai_client):
+    """Same retrieval + generation as answer_question, but yields the
+    answer as it's generated instead of waiting for the full response.
+
+    Yields ("chunk", text_piece) for each piece of answer text, followed
+    by exactly one ("done", retrieved_chunks) at the end. On a code-level
+    refusal, yields the refusal message as a single chunk and "done"
+    carries an empty list, so no sources get attached to a non-answer.
+    """
+    retrieved_chunks = retrieve_chunks(embedding_model, index_endpoint, chunk_lookup, question)
+
+    if not retrieved_chunks or retrieved_chunks[0]["distance"] > DISTANCE_THRESHOLD:
+        yield "chunk", NO_MATCH_MESSAGE
+        yield "done", []
+        return
+
+    prompt = build_prompt(question, retrieved_chunks)
+
+    stream = genai_client.models.generate_content_stream(
+        model=GENERATION_MODEL,
+        contents=prompt,
+        config=types.GenerateContentConfig(
+            system_instruction=SYSTEM_PROMPT,
+            temperature=0,
+        ),
+    )
+    for chunk in stream:
+        if chunk.text:
+            yield "chunk", chunk.text
+
+    yield "done", retrieved_chunks
+
+
 def main():
     vertexai.init(project=PROJECT_ID, location=VERTEX_LOCATION)
     embedding_model = TextEmbeddingModel.from_pretrained("text-embedding-005")
