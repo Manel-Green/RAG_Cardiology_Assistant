@@ -16,6 +16,7 @@ Then: curl -X POST localhost:8080/ask -H "Content-Type: application/json" \
 import json
 
 import vertexai
+import db
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
@@ -48,6 +49,7 @@ app.add_middleware(
     allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["X-Conversation-Id"],
 )
 
 vertexai.init(project=PROJECT_ID, location=VERTEX_LOCATION)
@@ -110,14 +112,22 @@ CITATIONS = {
 
 STRONG_MATCH_THRESHOLD = 0.25
 
-
 class QuestionRequest(BaseModel):
     question: str
+    conversation_id: str | None = None
 
 
 @app.get("/")
 def health_check():
     return {"status": "ok"}
+
+@app.get("/conversations")
+def get_conversations():
+    return db.list_conversations()
+
+@app.get("/conversations/{conversation_id}/messages")
+def get_conversation_messages(conversation_id: str):
+    return db.get_conversation_messages(conversation_id)
 
 
 def _build_sources(retrieved_chunks):
@@ -143,23 +153,47 @@ def _build_sources(retrieved_chunks):
         )
     return sources
 
+def _truncate_title(question, max_length=60):
+    if len(question) <= max_length:
+        return question
+    return question[:max_length].rstrip() + "..."
 
 @app.post("/ask")
 def ask(request: QuestionRequest):
+    conversation_id = request.conversation_id
+    if conversation_id is None:
+        conversation_id = db.create_conversation(_truncate_title(request.question))
+        history = []
+    else:
+        history = db.get_conversation_messages(conversation_id)
+
+    db.save_message(conversation_id, "user", request.question)
+
     def event_stream():
         retrieved_chunks = []
+        answer_parts = []
         for event_type, payload in stream_answer(
             request.question,
             embedding_model,
             index_endpoint,
             chunk_lookup,
             genai_client,
+            history=history,
         ):
             if event_type == "chunk":
+                answer_parts.append(payload)
                 yield payload
             else:  # "done"
                 retrieved_chunks = payload
 
-        yield SOURCES_DELIMITER + json.dumps(_build_sources(retrieved_chunks))
+        sources = _build_sources(retrieved_chunks)
+        db.save_message(conversation_id, "assistant", "".join(answer_parts), sources=sources)
 
-    return StreamingResponse(event_stream(), media_type="text/plain")
+        yield SOURCES_DELIMITER + json.dumps(sources)
+
+    response = StreamingResponse(event_stream(), media_type="text/plain")
+    response.headers["X-Conversation-Id"] = conversation_id
+    return response
+
+
+

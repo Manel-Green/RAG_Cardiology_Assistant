@@ -165,8 +165,44 @@ def answer_question(question, embedding_model, index_endpoint, chunk_lookup, gen
 
     return response.text, retrieved_chunks
 
+def rewrite_question_with_history(question, history, genai_client):
+    """If there's prior conversation turns, rewrite the new question into
+    a self-contained one using that history - e.g. "what about diabetic
+    patients?" -> "does myocardial viability testing predict CABG benefit
+    in diabetic patients?" Returns the question unchanged if there's no
+    history - no extra Gemini call needed when there's nothing to rewrite
+    against."""
+    if not history:
+        return question
 
-def stream_answer(question, embedding_model, index_endpoint, chunk_lookup, genai_client):
+    history_text = "\n".join(
+        f"{'Q' if msg['role'] == 'user' else 'A'}: {msg['text']}"
+        for msg in history
+    )
+
+    prompt = f"""Given this conversation history, rewrite the follow-up question into a \
+standalone question that makes sense without the history. If the follow-up is \
+already standalone, return it unchanged. Output only the rewritten question, \
+nothing else - no preamble, no quotes.
+
+HISTORY:
+{history_text}
+
+FOLLOW-UP QUESTION: {question}
+
+STANDALONE QUESTION:"""
+
+    response = genai_client.models.generate_content(
+        model=GENERATION_MODEL,
+        contents=prompt,
+        config=types.GenerateContentConfig(temperature=0),
+    )
+    rewritten = response.text.strip()
+    print(f"[memory] original: {question!r} -> rewritten: {rewritten!r}")
+    return rewritten
+
+
+def stream_answer(question, embedding_model, index_endpoint, chunk_lookup, genai_client, history=None):
     """Same retrieval + generation as answer_question, but yields the
     answer as it's generated instead of waiting for the full response.
 
@@ -175,6 +211,8 @@ def stream_answer(question, embedding_model, index_endpoint, chunk_lookup, genai
     refusal, yields the refusal message as a single chunk and "done"
     carries an empty list, so no sources get attached to a non-answer.
     """
+    question = rewrite_question_with_history(question, history or [], genai_client)
+
     retrieved_chunks = retrieve_chunks(embedding_model, index_endpoint, chunk_lookup, question)
 
     if not retrieved_chunks or retrieved_chunks[0]["distance"] > DISTANCE_THRESHOLD:
@@ -197,6 +235,8 @@ def stream_answer(question, embedding_model, index_endpoint, chunk_lookup, genai
             yield "chunk", chunk.text
 
     yield "done", retrieved_chunks
+
+
 
 
 def main():

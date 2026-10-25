@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 
-const BACKEND_URL = "https://rag-heart-studies-backend-90354696252.europe-west3.run.app/ask";
-const SOURCES_DELIMITER = "⁣⁣SOURCES⁣⁣"; // must match src/app.py exactly
+const BACKEND_BASE_URL = "http://localhost:8080";
+const SOURCES_DELIMITER = "SOURCES"; // must match src/app.py exactly
 
 function dedupeSources(sources) {
   const seen = new Set();
@@ -15,9 +15,6 @@ function dedupeSources(sources) {
   return result;
 }
 
-// How fast the typewriter reveal runs - independent of how fast the
-// network actually delivers chunks, so short answers / fast connections
-// don't make the "streaming" effect invisible.
 const REVEAL_CHARS_PER_TICK = 3;
 const REVEAL_TICK_MS = 10;
 
@@ -25,6 +22,8 @@ export default function App() {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [conversations, setConversations] = useState([]);
+  const [conversationId, setConversationId] = useState(null);
   const bottomRef = useRef(null);
   const typewriterRef = useRef(null);
 
@@ -36,6 +35,43 @@ export default function App() {
     return () => clearInterval(typewriterRef.current?.intervalId);
   }, []);
 
+  useEffect(() => {
+    loadConversations();
+  }, []);
+
+  async function loadConversations() {
+    try {
+      const response = await fetch(`${BACKEND_BASE_URL}/conversations`);
+      if (!response.ok) return;
+      setConversations(await response.json());
+    } catch {
+      // Sidebar is a nice-to-have - a failed fetch here shouldn't block asking questions.
+    }
+  }
+
+  function startNewChat() {
+    setConversationId(null);
+    setMessages([]);
+  }
+
+  async function loadConversation(id) {
+    try {
+      const response = await fetch(`${BACKEND_BASE_URL}/conversations/${id}/messages`);
+      if (!response.ok) return;
+      const history = await response.json();
+      setMessages(
+        history.map((m) => ({
+          role: m.role,
+          text: m.text,
+          sources: dedupeSources(m.sources),
+        }))
+      );
+      setConversationId(id);
+    } catch {
+      // Leave the current view as-is if loading fails.
+    }
+  }
+
   function updateLastAssistant(update) {
     setMessages((prev) => {
       const next = [...prev];
@@ -44,9 +80,6 @@ export default function App() {
     });
   }
 
-  // Reveals typewriter.target gradually into the last message, regardless
-  // of when/how much of it arrived from the network. Call again whenever
-  // more target text is available; it's a no-op if already running.
   function ensureTypewriterRunning() {
     const typewriter = typewriterRef.current;
     if (typewriter.intervalId) return;
@@ -80,12 +113,16 @@ export default function App() {
     let started = false;
 
     try {
-      const response = await fetch(BACKEND_URL, {
+      const response = await fetch(`${BACKEND_BASE_URL}/ask`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ question }),
+        body: JSON.stringify({ question, conversation_id: conversationId }),
       });
       if (!response.ok) throw new Error(`Request failed (${response.status})`);
+
+      const returnedId = response.headers.get("X-Conversation-Id");
+      const isNewConversation = !conversationId && returnedId;
+      if (returnedId) setConversationId(returnedId);
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
@@ -97,7 +134,7 @@ export default function App() {
         if (done) break;
         buffer += decoder.decode(value, { stream: true });
 
-        if (sawDelimiter) continue; // rest of buffer is the trailing sources JSON
+        if (sawDelimiter) continue;
 
         const idx = buffer.indexOf(SOURCES_DELIMITER);
         if (idx === -1) {
@@ -117,14 +154,19 @@ export default function App() {
       }
 
       if (sawDelimiter) {
+         const jsonStart = buffer.indexOf("[");
+        const sourcesJson = jsonStart === -1 ? buffer : buffer.slice(jsonStart);
         try {
-          typewriter.sources = dedupeSources(JSON.parse(buffer));
-        } catch {
+          typewriter.sources = dedupeSources(JSON.parse(sourcesJson));
+        } catch (err) {
+          console.error("Failed to parse sources JSON:", err);
           typewriter.sources = [];
         }
       }
       typewriter.streamDone = true;
       ensureTypewriterRunning();
+
+      if (isNewConversation) loadConversations();
     } catch (err) {
       clearInterval(typewriter.intervalId);
       const message = `Could not reach the assistant: ${err.message}`;
@@ -138,92 +180,113 @@ export default function App() {
   }
 
   return (
-    <div className="page">
-      <header className="header">
-        <svg className="ecg-trace" viewBox="0 0 1000 60" preserveAspectRatio="none">
-          <path
-            id="ecg-path"
-            d="M0,30 L300,30 L320,30 L335,8 L350,52 L365,30 L380,30 L1000,30"
-            fill="none"
-            stroke="#1c4a8a"
-            strokeWidth="2"
-          />
-          <circle r="5" fill="#ffffff">
-            <animateMotion dur="3.5s" repeatCount="indefinite">
-              <mpath href="#ecg-path" />
-            </animateMotion>
-          </circle>
-        </svg>
-        <h1>RAG Agent for Cardiology Research</h1>
-        <p>The best assistant for cardiologists</p>
-      </header>
-
-      <main className="conversation">
-        {messages.map((m, i) =>
-          m.role === "user" ? (
-            <div className="row row-user" key={i}>
-              <div className="bubble">{m.text}</div>
-            </div>
-          ) : (
-            <div className="row row-assistant" key={i}>
-              <div className="answer">
-                <ReactMarkdown>{m.text}</ReactMarkdown>
-              </div>
-              {m.sources && m.sources.length > 0 && (
-                <div className="sources">
-                  {m.sources.map((s, j) => (
-                    <div className="source-card" key={j}>
-                      <div className="source-eyebrow">📖 EVIDENCE</div>
-                      <div className="source-title">{s.title}</div>
-                      {s.journal && (
-                        <div className="source-journal">{s.journal}</div>
-                      )}
-                      <div className="source-text">
-                        {s.text.slice(0, 280)}...
-                      </div>
-                      {s.paper_url && (
-                        <a
-                          className="source-link"
-                          href={s.paper_url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                        >
-                          Read the paper →
-                        </a>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )
-        )}
-        {loading && (
-          <div className="row row-assistant">
-            <div className="answer thinking">
-              Thinking
-              <span className="dots">
-                <span>.</span>
-                <span>.</span>
-                <span>.</span>
-              </span>
-            </div>
-          </div>
-        )}
-        <div ref={bottomRef} />
-      </main>
-
-      <form className="composer" onSubmit={handleSubmit}>
-        <input
-          type="text"
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          placeholder="Ask me anything"
-        />
-        <button type="submit" disabled={loading}>
-          ➤
+    <div className="app-shell">
+      <aside className="sidebar">
+        <button className="new-chat-btn" onClick={startNewChat}>
+          + New chat
         </button>
-      </form>
+        <div className="conversation-list">
+          {conversations.map((c) => (
+            <button
+              key={c.conversation_id}
+              className={
+                "conversation-item" + (c.conversation_id === conversationId ? " active" : "")
+              }
+              onClick={() => loadConversation(c.conversation_id)}
+            >
+              {c.title || "Untitled conversation"}
+            </button>
+          ))}
+        </div>
+      </aside>
+
+      <div className="page">
+        <header className="header">
+          <svg className="ecg-trace" viewBox="0 0 1000 60" preserveAspectRatio="none">
+            <path
+              id="ecg-path"
+              d="M0,30 L300,30 L320,30 L335,8 L350,52 L365,30 L380,30 L1000,30"
+              fill="none"
+              stroke="#1c4a8a"
+              strokeWidth="2"
+            />
+            <circle r="5" fill="#ffffff">
+              <animateMotion dur="3.5s" repeatCount="indefinite">
+                <mpath href="#ecg-path" />
+              </animateMotion>
+            </circle>
+          </svg>
+          <h1>RAG Agent for Cardiology Research</h1>
+          <p>The best assistant for cardiologists</p>
+        </header>
+
+        <main className="conversation">
+          {messages.map((m, i) =>
+            m.role === "user" ? (
+              <div className="row row-user" key={i}>
+                <div className="bubble">{m.text}</div>
+              </div>
+            ) : (
+              <div className="row row-assistant" key={i}>
+                <div className="answer">
+                  <ReactMarkdown>{m.text}</ReactMarkdown>
+                </div>
+                {m.sources && m.sources.length > 0 && (
+                  <div className="sources">
+                    {m.sources.map((s, j) => (
+                      <div className="source-card" key={j}>
+                        <div className="source-eyebrow">📖 EVIDENCE</div>
+                        <div className="source-title">{s.title}</div>
+                        {s.journal && (
+                          <div className="source-journal">{s.journal}</div>
+                        )}
+                        <div className="source-text">
+                          {(s.text || "").slice(0, 280)}...
+                        </div>
+                        {s.paper_url && (
+                          <a
+                            className="source-link"
+                            href={s.paper_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                          >
+                            Read the paper →
+                          </a>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )
+          )}
+          {loading && (
+            <div className="row row-assistant">
+              <div className="answer thinking">
+                Thinking
+                <span className="dots">
+                  <span>.</span>
+                  <span>.</span>
+                  <span>.</span>
+                </span>
+              </div>
+            </div>
+          )}
+          <div ref={bottomRef} />
+        </main>
+
+        <form className="composer" onSubmit={handleSubmit}>
+          <input
+            type="text"
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            placeholder="Ask me anything"
+          />
+          <button type="submit" disabled={loading}>
+            ➤
+          </button>
+        </form>
+      </div>
     </div>
   );
 }
