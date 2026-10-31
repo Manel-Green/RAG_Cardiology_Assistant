@@ -6,3 +6,6 @@ frontend/node_modules/
 frontend/dist/
 chat_history.db
 .history/
+terraform/.terraform/
+terraform/*.tfstate
+terraform/*.tfstate.backup
